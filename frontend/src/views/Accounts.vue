@@ -207,13 +207,23 @@ async function handleSubmit() {
   if (form.cookie_twm) data.cookie_twm = form.cookie_twm
 
   try {
+    let savedId = 0
     if (isEdit.value) {
-      await accountApi.update(editId.value, data)
+      const res = await accountApi.update(editId.value, data)
+      savedId = res.data?.id || editId.value
       ElMessage.success('账号已更新')
     } else {
-      await accountApi.create(data)
+      const res = await accountApi.create(data)
+      savedId = res.data?.id || 0
       ElMessage.success('账号已创建')
     }
+
+    // 兜底：前端保存后再显式重载一次该账号定时任务
+    // （兼容后端尚未重启到最新代码的场景）
+    if (savedId) {
+      await taskApi.applySchedule(savedId)
+    }
+
     dialogVisible.value = false
     await loadAccounts()
   } finally {
