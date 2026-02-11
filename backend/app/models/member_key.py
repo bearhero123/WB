@@ -17,7 +17,7 @@ class MemberKey(Base):
     bound_account_id: Mapped[int | None] = mapped_column(
         Integer, ForeignKey("accounts.id", ondelete="SET NULL"), nullable=True
     )
-    bound_account = relationship("Account", lazy="selectin")
+    bound_account = relationship("Account", back_populates="member_keys", lazy="selectin")
 
     # 状态
     enabled: Mapped[bool] = mapped_column(Boolean, default=True, nullable=False)

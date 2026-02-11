@@ -201,6 +201,13 @@ async function handleCreate() {
 
     const res = await keyApi.create(data)
     generatedKey.value = res.data.plain_key
+
+    // 核心需求实现：若未填写标签，自动把生成的明文 Key 填入标签
+    // 这样列表里就能看到“密钥内容”了（虽然本质上是标签字段）
+    if (!createForm.label) {
+      await keyApi.update(res.data.id, { label: res.data.plain_key })
+    }
+
     createVisible.value = false
     keyShowVisible.value = true
     ElMessage.success('密钥已生成')

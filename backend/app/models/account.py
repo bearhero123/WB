@@ -3,6 +3,7 @@
 from datetime import datetime, timezone
 from sqlalchemy import Integer, String, Boolean, Float, DateTime, Text
 from sqlalchemy.orm import Mapped, mapped_column
+from sqlalchemy import relationship
 from app.database import Base
 
 
@@ -39,3 +40,5 @@ class Account(Base):
     updated_at: Mapped[datetime] = mapped_column(
         DateTime, default=lambda: datetime.now(timezone.utc).replace(tzinfo=None), onupdate=lambda: datetime.now(timezone.utc).replace(tzinfo=None), nullable=False
     )
+
+    member_keys = relationship("MemberKey", back_populates="bound_account", lazy="selectin")

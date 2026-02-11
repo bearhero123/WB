@@ -166,8 +166,37 @@ async def push_event(
 
 # ─── 推送消息模板 ───
 
-def build_checkin_message(account_name: str, cookie_status: str, stats: dict) -> tuple[str, str]:
+def _get_key_info(account: Account) -> str:
+    """获取账号关联密钥的有效期信息"""
+    if not account or not account.member_keys:
+        return "未绑定密钥"
+
+    valid_keys = [k for k in account.member_keys if k.enabled]
+    if not valid_keys:
+        return "无有效密钥"
+
+    # 检查是否有永久密钥
+    if any(k.expires_at is None for k in valid_keys):
+        return "永久密钥用户"
+
+    # 计算最晚过期时间
+    # 注意：expires_at 存储为无时区 UTC
+    latest_expire = max(k.expires_at for k in valid_keys if k.expires_at)
+    now_utc = datetime.now(timezone.utc).replace(tzinfo=None)
+
+    if latest_expire <= now_utc:
+        return "密钥已过期"
+
+    days = (latest_expire - now_utc).days
+    return f"剩余 {days} 天"
+
+
+def build_checkin_message(account: Account, stats: dict) -> tuple[str, str]:
     """构建签到结果推送消息（含超话明细）"""
+    account_name = account.account_name
+    cookie_status = "有效" if account.cookie_sub else "失效"
+    key_info = _get_key_info(account)
+
     total = stats.get("total", 0)
     success = stats.get("success", 0)
     already = stats.get("already", 0)
@@ -191,6 +220,7 @@ def build_checkin_message(account_name: str, cookie_status: str, stats: dict) ->
 |------|------|
 | 账号 | `{account_name}` |
 | 时间 | `{now}` |
+| 密钥 | `{key_info}` |
 | Cookie | `{cookie_status}` |
 | 总超话 | **{total}** |
 | ✅ 新签到 | **{success}** |
