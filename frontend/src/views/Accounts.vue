@@ -60,44 +60,52 @@
       width="520px"
       destroy-on-close
     >
-      <el-form :model="form" label-width="100px" style="max-height: 60vh; overflow-y: auto; padding-right: 10px;">
-        <el-form-item label="账号名" required>
-          <el-input v-model="form.account_name" :disabled="isEdit" placeholder="唯一标识" />
-        </el-form-item>
-        <el-form-item label="Cookie SUB">
-          <el-input v-model="form.cookie_sub" placeholder="留空则不更新" type="textarea" :rows="2" />
-        </el-form-item>
-        <el-form-item label="Cookie SUBP">
-          <el-input v-model="form.cookie_subp" placeholder="留空则不更新" />
-        </el-form-item>
-        <el-form-item label="Cookie _T_WM">
-          <el-input v-model="form.cookie_twm" placeholder="留空则不更新" />
-        </el-form-item>
-        <el-divider content-position="left">定时设置</el-divider>
-        <el-form-item label="启用定时">
-          <el-switch v-model="form.schedule_enabled" />
-        </el-form-item>
-        <el-form-item label="签到时间">
-          <el-time-picker
-            v-model="form._time"
-            format="HH:mm"
-            value-format="HH:mm"
-            placeholder="选择时间"
-          />
-        </el-form-item>
-        <el-form-item label="随机延迟(s)">
-          <el-input-number v-model="form.schedule_random_delay" :min="0" :max="86400" />
-        </el-form-item>
-        <el-divider content-position="left">高级设置</el-divider>
-        <el-form-item label="重试次数">
-          <el-input-number v-model="form.retry_count" :min="0" :max="10" />
-        </el-form-item>
-        <el-form-item label="请求间隔(s)">
-          <el-input-number v-model="form.request_interval" :min="1" :max="30" :step="0.5" />
-        </el-form-item>
-        <el-form-item label="SendKey">
-          <el-input v-model="form.sendkey" placeholder="Server酱推送密钥（可选）" />
-        </el-form-item>
+      <el-form :model="form" label-width="100px" style="height: 400px; overflow-y: auto;">
+        <el-tabs v-model="activeTab">
+          <el-tab-pane label="基础信息" name="basic">
+            <el-form-item label="账号名" required>
+              <el-input v-model="form.account_name" :disabled="isEdit" placeholder="唯一标识" />
+            </el-form-item>
+            <el-form-item label="Cookie SUB">
+              <el-input v-model="form.cookie_sub" placeholder="留空则不更新" type="textarea" :rows="3" />
+            </el-form-item>
+            <el-form-item label="Cookie SUBP">
+              <el-input v-model="form.cookie_subp" placeholder="留空则不更新" />
+            </el-form-item>
+            <el-form-item label="Cookie _T_WM">
+              <el-input v-model="form.cookie_twm" placeholder="留空则不更新" />
+            </el-form-item>
+          </el-tab-pane>
+
+          <el-tab-pane label="定时设置" name="schedule">
+            <el-form-item label="启用定时">
+              <el-switch v-model="form.schedule_enabled" />
+            </el-form-item>
+            <el-form-item label="签到时间">
+              <el-time-picker
+                v-model="form._time"
+                format="HH:mm"
+                value-format="HH:mm"
+                placeholder="选择时间"
+              />
+            </el-form-item>
+            <el-form-item label="随机延迟(s)">
+              <el-input-number v-model="form.schedule_random_delay" :min="0" :max="86400" />
+            </el-form-item>
+          </el-tab-pane>
+
+          <el-tab-pane label="高级设置" name="advanced">
+            <el-form-item label="重试次数">
+              <el-input-number v-model="form.retry_count" :min="0" :max="10" />
+            </el-form-item>
+            <el-form-item label="请求间隔(s)">
+              <el-input-number v-model="form.request_interval" :min="1" :max="30" :step="0.5" />
+            </el-form-item>
+            <el-form-item label="SendKey">
+              <el-input v-model="form.sendkey" placeholder="Server酱推送密钥（可选）" />
+            </el-form-item>
+          </el-tab-pane>
+        </el-tabs>
       </el-form>
       <template #footer>
         <el-button @click="dialogVisible = false">取消</el-button>
@@ -117,6 +125,7 @@ const accounts = ref<any[]>([])
 
 const dialogVisible = ref(false)
 const isEdit = ref(false)
+const activeTab = ref('basic')
 const editId = ref(0)
 const submitLoading = ref(false)
 
@@ -149,12 +158,14 @@ async function loadAccounts() {
 function openCreate() {
   Object.assign(form, { ...defaultForm })
   isEdit.value = false
+  activeTab.value = 'basic'
   dialogVisible.value = true
 }
 
 function openEdit(row: any) {
   isEdit.value = true
   editId.value = row.id
+  activeTab.value = 'basic'
   Object.assign(form, {
     account_name: row.account_name,
     cookie_sub: '',
