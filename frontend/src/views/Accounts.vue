@@ -63,18 +63,20 @@
       <el-form :model="form" label-width="100px">
         <el-tabs v-model="activeTab">
           <el-tab-pane label="基础信息" name="basic">
-            <el-form-item label="账号名" required>
-              <el-input v-model="form.account_name" :disabled="isEdit" placeholder="唯一标识" />
-            </el-form-item>
-            <el-form-item label="Cookie SUB">
-              <el-input v-model="form.cookie_sub" placeholder="留空则不更新" type="textarea" :rows="3" />
-            </el-form-item>
-            <el-form-item label="Cookie SUBP">
-              <el-input v-model="form.cookie_subp" placeholder="留空则不更新" />
-            </el-form-item>
-            <el-form-item label="Cookie _T_WM">
-              <el-input v-model="form.cookie_twm" placeholder="留空则不更新" />
-            </el-form-item>
+            <div style="max-height: 400px; overflow-y: auto; padding-right: 10px;">
+              <el-form-item label="账号名" required>
+                <el-input v-model="form.account_name" :disabled="isEdit" placeholder="唯一标识" />
+              </el-form-item>
+              <el-form-item label="Cookie SUB">
+                <el-input v-model="form.cookie_sub" placeholder="留空则不更新" type="textarea" :rows="3" />
+              </el-form-item>
+              <el-form-item label="Cookie SUBP">
+                <el-input v-model="form.cookie_subp" placeholder="留空则不更新" />
+              </el-form-item>
+              <el-form-item label="Cookie _T_WM">
+                <el-input v-model="form.cookie_twm" placeholder="留空则不更新" />
+              </el-form-item>
+            </div>
           </el-tab-pane>
 
           <el-tab-pane label="定时设置" name="schedule">
