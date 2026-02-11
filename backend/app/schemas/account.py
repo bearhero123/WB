@@ -3,6 +3,7 @@
 from datetime import datetime
 from typing import Optional
 from pydantic import BaseModel, Field
+from app.utils.time import to_tz_datetime
 
 
 class AccountCreate(BaseModel):
@@ -56,6 +57,10 @@ class AccountResponse(BaseModel):
     @classmethod
     def from_orm_with_cookie_status(cls, account):
         data = cls.model_validate(account)
+        data.cookie_updated_at = to_tz_datetime(data.cookie_updated_at)
+        data.last_checkin_at = to_tz_datetime(data.last_checkin_at)
+        data.created_at = to_tz_datetime(data.created_at)
+        data.updated_at = to_tz_datetime(data.updated_at)
         data.has_cookie = bool(account.cookie_sub and account.cookie_subp)
         if account.cookie_sub and account.cookie_subp:
             data.cookie_status = "valid"

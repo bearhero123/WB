@@ -3,6 +3,7 @@
 from datetime import datetime
 from typing import Optional
 from pydantic import BaseModel, Field
+from app.utils.time import to_tz_datetime
 
 
 class MemberKeyCreate(BaseModel):
@@ -33,6 +34,9 @@ class MemberKeyResponse(BaseModel):
     @classmethod
     def from_orm_with_account(cls, key):
         data = cls.model_validate(key)
+        data.expires_at = to_tz_datetime(data.expires_at)
+        data.last_used_at = to_tz_datetime(data.last_used_at)
+        data.created_at = to_tz_datetime(data.created_at)
         if key.bound_account:
             data.bound_account_name = key.bound_account.account_name
         return data

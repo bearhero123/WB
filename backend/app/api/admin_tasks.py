@@ -18,6 +18,7 @@ from app.services.scheduler_service import (
     apply_all_schedules,
     get_scheduler_status,
 )
+from app.utils.time import to_tz_iso
 
 logger = logging.getLogger(__name__)
 
@@ -136,7 +137,7 @@ async def get_task_logs(
             status=log.status,
             detail=log.detail,
             message=log.message,
-            created_at=log.created_at.isoformat() if log.created_at else "",
+            created_at=to_tz_iso(log.created_at),
         )
         # 尝试获取账号名
         if log.account_id:

@@ -85,7 +85,7 @@
 <script setup lang="ts">
 import { ref, reactive, computed, onMounted } from 'vue'
 import { taskApi, accountApi } from '@/api'
-import dayjs from 'dayjs'
+import { formatServerTime } from '@/utils/time'
 
 const loading = ref(false)
 const logs = ref<any[]>([])
@@ -104,7 +104,7 @@ const filters = reactive({
 const currentPage = computed(() => Math.floor(filters.skip / filters.limit) + 1)
 
 function formatTime(t: string) {
-  return t ? dayjs(t).format('YYYY-MM-DD HH:mm:ss') : '-'
+  return formatServerTime(t)
 }
 
 function eventTagType(type: string): string {

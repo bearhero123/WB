@@ -123,7 +123,7 @@
 import { ref, reactive, onMounted } from 'vue'
 import { ElMessage } from 'element-plus'
 import { accountApi, keyApi, taskApi, pushApi } from '@/api'
-import dayjs from 'dayjs'
+import { formatServerTime } from '@/utils/time'
 
 const stats = reactive({
   totalAccounts: 0,
@@ -146,7 +146,7 @@ const eventTypeMap: Record<string, string> = {
 }
 
 function formatTime(t: string) {
-  return t ? dayjs(t).format('YYYY-MM-DD HH:mm:ss') : '-'
+  return formatServerTime(t)
 }
 
 async function loadData() {

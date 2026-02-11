@@ -149,7 +149,7 @@
 import { ref, reactive, onMounted } from 'vue'
 import { ElMessage } from 'element-plus'
 import { keyApi, accountApi } from '@/api'
-import dayjs from 'dayjs'
+import { formatServerTime } from '@/utils/time'
 
 const loading = ref(false)
 const keys = ref<any[]>([])
@@ -167,7 +167,7 @@ const editId = ref(0)
 const editForm = reactive({ label: '', bound_account_id: null as number | null, expires_at: '' })
 
 function formatTime(t: string) {
-  return t ? dayjs(t).format('YYYY-MM-DD HH:mm:ss') : '-'
+  return formatServerTime(t)
 }
 
 async function loadKeys() {
