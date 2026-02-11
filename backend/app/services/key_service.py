@@ -40,6 +40,7 @@ async def create_key(db: AsyncSession, data: MemberKeyCreate) -> tuple[MemberKey
 
     member_key = MemberKey(
         label=data.label,
+        key_plain=plain_key,
         key_hash=key_hashed,
         bound_account_id=data.bound_account_id,
         expires_at=expires_at,

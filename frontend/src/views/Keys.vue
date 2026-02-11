@@ -12,6 +12,12 @@
       <el-table :data="keys" v-loading="loading" stripe>
         <el-table-column prop="id" label="ID" width="60" />
         <el-table-column prop="label" label="标签" width="140" />
+        <el-table-column label="密钥" min-width="260">
+          <template #default="{ row }">
+            <el-text v-if="row.key_plain" size="small" style="word-break: break-all">{{ row.key_plain }}</el-text>
+            <el-text v-else type="info" size="small">-</el-text>
+          </template>
+        </el-table-column>
         <el-table-column label="状态" width="80">
           <template #default="{ row }">
             <el-tag :type="row.enabled ? 'success' : 'danger'" size="small">
@@ -201,12 +207,6 @@ async function handleCreate() {
 
     const res = await keyApi.create(data)
     generatedKey.value = res.data.plain_key
-
-    // 核心需求实现：若未填写标签，自动把生成的明文 Key 填入标签
-    // 这样列表里就能看到“密钥内容”了（虽然本质上是标签字段）
-    if (!createForm.label) {
-      await keyApi.update(res.data.id, { label: res.data.plain_key })
-    }
 
     createVisible.value = false
     keyShowVisible.value = true

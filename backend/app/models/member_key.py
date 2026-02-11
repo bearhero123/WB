@@ -11,6 +11,7 @@ class MemberKey(Base):
 
     id: Mapped[int] = mapped_column(Integer, primary_key=True, autoincrement=True)
     label: Mapped[str | None] = mapped_column(String(100), nullable=True, default="")
+    key_plain: Mapped[str | None] = mapped_column(String(128), nullable=True)
     key_hash: Mapped[str] = mapped_column(String(64), unique=True, nullable=False, index=True)
 
     # 绑定账号

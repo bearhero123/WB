@@ -22,6 +22,7 @@ class MemberKeyUpdate(BaseModel):
 class MemberKeyResponse(BaseModel):
     id: int
     label: Optional[str] = None
+    key_plain: Optional[str] = None
     bound_account_id: Optional[int] = None
     bound_account_name: Optional[str] = None
     enabled: bool
