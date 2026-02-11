@@ -1,0 +1,23 @@
+__pycache__/
+*.pyc
+*.pyo
+.env
+.env.local
+node_modules/
+dist/
+*.egg-info/
+.vscode/
+.idea/
+*.db
+*.sqlite3
+
+# System files
+.DS_Store
+Thumbs.db
+
+# Reference/Temp folders
+sign_weibo_chaohua-master/
+venv/
+.pytest_cache/
+coverage/
+htmlcov/
