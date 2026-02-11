@@ -34,11 +34,15 @@ async def create_key(db: AsyncSession, data: MemberKeyCreate) -> tuple[MemberKey
     plain_key = generate_member_key()
     key_hashed = hash_key(plain_key)
 
+    expires_at = data.expires_at
+    if expires_at and expires_at.tzinfo:
+        expires_at = expires_at.replace(tzinfo=None)
+
     member_key = MemberKey(
         label=data.label,
         key_hash=key_hashed,
         bound_account_id=data.bound_account_id,
-        expires_at=data.expires_at,
+        expires_at=expires_at,
     )
     db.add(member_key)
     await db.commit()
@@ -54,6 +58,9 @@ async def update_key(db: AsyncSession, key_id: int, data: MemberKeyUpdate) -> Op
         return None
 
     update_data = data.model_dump(exclude_unset=True)
+    if "expires_at" in update_data and update_data["expires_at"] and update_data["expires_at"].tzinfo:
+        update_data["expires_at"] = update_data["expires_at"].replace(tzinfo=None)
+
     for key, value in update_data.items():
         setattr(member_key, key, value)
     await db.commit()
