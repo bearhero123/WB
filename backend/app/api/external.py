@@ -209,11 +209,32 @@ async def external_trigger_checkin(
         stats = await checkin_service.run_checkin(db, target_account)
 
         # 构建返回消息
-        summary = f"总计 {stats.get('total', 0)}, 成功 {stats.get('success', 0)}, 已签 {stats.get('already', 0)}, 失败 {stats.get('failed', 0)}"
+        total = stats.get('total', 0)
+        success = stats.get('success', 0)
+        already = stats.get('already', 0)
+        failed = stats.get('failed', 0)
+        summary = f"总计 {total}, 成功 {success}, 已签 {already}, 失败 {failed}"
         
-        detail_msg = summary
+        detail_lines = [summary, ""]
+
+        # 列出每个超话的签到状态
+        checkin_details = stats.get("checkin_details", [])
+        if checkin_details:
+            detail_lines.append("超话签到明细：")
+            for i, item in enumerate(checkin_details, 1):
+                icon = {"success": "✅", "already": "☑️", "failed": "❌"}.get(item["status"], "?")
+                detail_lines.append(f"  {i}. {icon} {item['name']}: {item['detail']}")
+        elif total == 0:
+            detail_lines.append("⚠️ 未获取到任何关注的超话。")
+            detail_lines.append("可能原因：Cookie过期、未关注超话、或微博API参数未配置。")
+
         if stats.get("failed_items"):
-            detail_msg += "\n\n失败项详情:\n" + "\n".join(stats["failed_items"])
+            detail_lines.append("")
+            detail_lines.append("失败项详情：")
+            for item in stats["failed_items"]:
+                detail_lines.append(f"  - {item}")
+
+        detail_msg = "\n".join(detail_lines)
 
         return {
             "ok": True,

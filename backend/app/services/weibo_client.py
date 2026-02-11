@@ -106,19 +106,26 @@ class CardlistProvider(BaseProvider):
                     break
 
                 cards = data.get("cards", [])
+                logger.info(f"CardlistProvider: 第{len(topics)//10+1}页, cards数量={len(cards)}")
                 if not cards:
+                    # 记录原始响应帮助排查
+                    logger.info(f"CardlistProvider: 无cards返回, 原始响应keys={list(data.keys())}, ok={data.get('ok')}, msg={data.get('msg', '')}")
                     break
 
                 for card in cards:
                     card_group = card.get("card_group", [])
                     for item in card_group:
-                        if item.get("card_type") == "8":
+                        card_type = item.get("card_type")
+                        # card_type 可能是 int 或 str
+                        if str(card_type) == "8":
                             scheme = item.get("scheme", "")
                             title = item.get("title_sub", "未知超话")
                             # 从 scheme 提取 containerid
                             cid = self._extract_containerid(scheme)
                             if cid:
                                 topics.append(Topic(title=title, container_id=cid, scheme=scheme))
+                            else:
+                                logger.warning(f"CardlistProvider: 超话 [{title}] 无法提取containerid, scheme={scheme[:100]}")
 
                 # 分页
                 cardlist_info = data.get("cardlistInfo", {})
@@ -223,7 +230,9 @@ class TopicsubProvider(BaseProvider):
                     break
 
                 items = data.get("items", [])
+                logger.info(f"TopicsubProvider: items数量={len(items)}")
                 if not items:
+                    logger.info(f"TopicsubProvider: 无items返回, 原始响应keys={list(data.keys())}, ok={data.get('ok')}, msg={data.get('msg', '')}")
                     break
 
                 for item_group in items:
