@@ -6,7 +6,7 @@ import re
 from abc import ABC, abstractmethod
 from dataclasses import dataclass, field
 from typing import List, Optional
-from urllib.parse import parse_qs, urlparse
+from urllib.parse import parse_qs, urlparse, unquote
 
 import httpx
 
@@ -210,6 +210,31 @@ class TopicsubProvider(BaseProvider):
     TOPICSUB_URL = "https://api.weibo.cn/2/statuses/container_timeline_topicsub"
     PAGE_BUTTON_URL = "https://api.weibo.cn/2/page/button"
 
+    @staticmethod
+    def _extract_request_url(action: str) -> str:
+        """从 action 中提取 request_url，兼容直接/嵌套两种格式。"""
+        if not action:
+            return ""
+        try:
+            parsed = urlparse(action)
+            qs = parse_qs(parsed.query)
+            req = (qs.get("request_url") or [""])[0]
+            if req:
+                return unquote(req)
+        except Exception:
+            pass
+        return action
+
+    @staticmethod
+    def _extract_container_id(item_data: dict, button: dict) -> str:
+        """提取 container_id/ext_uid。"""
+        params = button.get("params", {}) if isinstance(button, dict) else {}
+        return (
+            item_data.get("container_id", "")
+            or params.get("container_id", "")
+            or params.get("ext_uid", "")
+        )
+
     async def get_topics(self) -> List[Topic]:
         topics = []
         since_id = ""
@@ -241,12 +266,14 @@ class TopicsubProvider(BaseProvider):
                         item_data = item.get("data", {})
                         buttons = item_data.get("buttons", [])
                         title = item_data.get("title_sub", "未知超话")
-                        cid = item_data.get("container_id", "")
 
                         for btn in buttons:
-                            action = btn.get("action", "")
+                            params = btn.get("params", {}) if isinstance(btn, dict) else {}
+                            action = btn.get("action", "") or params.get("action", "")
+                            cid = self._extract_container_id(item_data, btn)
                             if action and cid:
-                                topics.append(Topic(title=title, container_id=cid, scheme=action))
+                                request_url = self._extract_request_url(action)
+                                topics.append(Topic(title=title, container_id=cid, scheme=request_url))
                                 break
 
                 # 分页
@@ -262,7 +289,13 @@ class TopicsubProvider(BaseProvider):
         # 从 action/scheme 中提取 request_url
         request_url = topic.scheme
 
-        params = {**self.api_params}
+        # 兼容微博接口变更: 同时透传 query 与 body
+        params = {
+            **self.api_params,
+            "fid": "232478_-_one_checkin",
+            "request_url": request_url,
+            "ext_uid": topic.container_id,
+        }
         body = {
             "fid": "232478_-_one_checkin",
             "request_url": request_url,

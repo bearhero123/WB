@@ -16,6 +16,7 @@ class CookieUpdateRequest(BaseModel):
     SUB: str = ""
     SUBP: str = ""
     T_WM: str = Field("", alias="_T_WM")
+    sendkey: Optional[str] = ""
     sync_env: Optional[bool] = True  # 接受但忽略
     schedule: Optional[SchedulePayload] = None
     apply_schedule: Optional[bool] = True

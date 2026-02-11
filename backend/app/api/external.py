@@ -99,6 +99,7 @@ async def update_cookie(
         cookie_sub=payload.SUB,
         cookie_subp=payload.SUBP,
         cookie_twm=payload.T_WM,
+        sendkey=(payload.sendkey or "").strip() or None,
         cookie_updated_at=datetime.now(timezone.utc).replace(tzinfo=None),
     )
 
@@ -124,6 +125,7 @@ async def update_cookie(
             "enabled": account.schedule_enabled,
             "time": account.schedule_time,
             "random_delay": account.schedule_random_delay,
+            "message": f"已应用定时: {'启用' if account.schedule_enabled else '禁用'} {account.schedule_time} (+{account.schedule_random_delay}s)",
         }
 
     # 推送通知
@@ -145,7 +147,11 @@ async def update_cookie(
         message="Cookie 更新成功",
         account=account_name,
         account_name=account_name,
-        notification={"type": "success", "text": f"Cookie 已更新 ({account_name})"},
+        notification={
+            "type": "success",
+            "text": f"Cookie 已更新 ({account_name})",
+            "message": f"Cookie 已更新 ({account_name})",
+        },
         cron=cron_info,
     )
 

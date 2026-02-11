@@ -6,7 +6,7 @@
   "sync_env": true,
   "schedule_enabled": true,
   "schedule_hour": "08",
-  "schedule_minute": "00",
+  "schedule_minute": "05",
   "schedule_random_delay": "300",
   "apply_schedule": true
 }

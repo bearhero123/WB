@@ -1088,6 +1088,7 @@ class CookieApp:
             "SUB": self.last_cookies.get("SUB", ""),
             "SUBP": self.last_cookies.get("SUBP", ""),
             "_T_WM": self.last_cookies.get("_T_WM", ""),
+            "sendkey": opts.get("sendkey", ""),
             "sync_env": opts["sync_env"],
             "schedule": opts["schedule"],
             "apply_schedule": opts["apply_schedule"],
