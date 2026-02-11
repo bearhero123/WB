@@ -110,7 +110,7 @@ async def run_checkin(db: AsyncSession, account: Account) -> dict:
         await db.commit()
 
         # 即使没有超话也推送通知，方便排查
-        title, desp = build_checkin_message(account_name, "VALID", stats)
+        title, desp = build_checkin_message(account, stats)
         await push_event(db, "checkin", title, desp, account, force=True)
 
         return stats
@@ -176,7 +176,7 @@ async def run_checkin(db: AsyncSession, account: Account) -> dict:
     await db.commit()
 
     # 5. 推送签到结果
-    title, desp = build_checkin_message(account_name, "VALID", stats)
+    title, desp = build_checkin_message(account, stats)
     await push_event(db, "checkin", title, desp, account)
 
     logger.info(f"签到完成: {account_name} - {log.message}\n{detail_text}")
