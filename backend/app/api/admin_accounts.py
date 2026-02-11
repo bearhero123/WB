@@ -9,6 +9,7 @@ from app.database import get_db
 from app.middleware.auth import require_admin
 from app.schemas.account import AccountCreate, AccountUpdate, AccountResponse
 from app.services import account_service
+from app.services.scheduler_service import apply_account_schedule
 
 router = APIRouter(
     prefix="/api/admin/accounts",
@@ -47,6 +48,7 @@ async def create_account(
     if existing:
         raise HTTPException(status_code=409, detail="账号名已存在")
     account = await account_service.create_account(db, body)
+    await apply_account_schedule(account.id, account)
     return AccountResponse.from_orm_with_cookie_status(account)
 
 
@@ -59,6 +61,7 @@ async def update_account(
     account = await account_service.update_account(db, account_id, body)
     if not account:
         raise HTTPException(status_code=404, detail="账号不存在")
+    await apply_account_schedule(account.id, account)
     return AccountResponse.from_orm_with_cookie_status(account)
 
 
