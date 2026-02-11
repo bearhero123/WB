@@ -60,7 +60,7 @@
       width="520px"
       destroy-on-close
     >
-      <el-form :model="form" label-width="100px">
+      <el-form :model="form" label-width="100px" style="max-height: 60vh; overflow-y: auto; padding-right: 10px;">
         <el-form-item label="账号名" required>
           <el-input v-model="form.account_name" :disabled="isEdit" placeholder="唯一标识" />
         </el-form-item>

@@ -1,0 +1,10 @@
+{
+  "server_url": "http://47.253.253.245:1234",
+  "member_key": "",
+  "account_name": "",
+  "sync_env": true,
+  "schedule_enabled": true,
+  "schedule_time": "08:00",
+  "schedule_random_delay": "300",
+  "apply_schedule": true
+}
