@@ -323,11 +323,136 @@ class TopicsubProvider(BaseProvider):
             return CheckinResult(topic_title=topic.title, status="failed", detail=str(e))
 
 
+class MWeiboProvider(BaseProvider):
+    """
+    方案 C: m.weibo.cn 网页接口
+    - GET /api/container/getIndex?containerid=100803_-_followsuper
+    - 从 cards/card_group 提取 buttons(name=签到) 的 scheme
+    - GET /api/container/button?... 执行签到
+    """
+
+    GETINDEX_URL = "https://m.weibo.cn/api/container/getIndex"
+    BASE_URL = "https://m.weibo.cn"
+
+    def __init__(self, sub: str, subp: str, twm: str = ""):
+        super().__init__(sub, subp, twm)
+        self.headers.update(
+            {
+                "Referer": "https://m.weibo.cn/p/index?containerid=100803_-_followsuper",
+                "Accept": "application/json, text/plain, */*",
+            }
+        )
+
+    async def get_topics(self) -> List[Topic]:
+        topics: List[Topic] = []
+        since_id = ""
+
+        async with httpx.AsyncClient(timeout=15, headers=self.headers) as client:
+            while True:
+                params = {"containerid": "100803_-_followsuper"}
+                if since_id:
+                    params["since_id"] = since_id
+
+                try:
+                    resp = await client.get(self.GETINDEX_URL, params=params)
+                    resp.raise_for_status()
+                    data = resp.json()
+                except Exception as e:
+                    logger.error(f"MWeiboProvider 获取超话列表失败: {e}")
+                    break
+
+                if data.get("ok") != 1:
+                    logger.info(
+                        "MWeiboProvider: 接口返回非ok, "
+                        f"ok={data.get('ok')}, msg={data.get('msg', '')}"
+                    )
+                    break
+
+                payload = data.get("data", {})
+                cards = payload.get("cards", [])
+                logger.info(f"MWeiboProvider: cards数量={len(cards)}")
+                if not cards:
+                    break
+
+                for card in cards:
+                    card_group = card.get("card_group", [])
+                    if card_group:
+                        for item in card_group:
+                            topic = self._parse_topic_item(item)
+                            if topic:
+                                topics.append(topic)
+                    else:
+                        topic = self._parse_topic_item(card)
+                        if topic:
+                            topics.append(topic)
+
+                new_since_id = payload.get("cardlistInfo", {}).get("since_id", "")
+                if not new_since_id or new_since_id == since_id:
+                    break
+                since_id = new_since_id
+
+        logger.info(f"MWeiboProvider: 获取到 {len(topics)} 个超话")
+        return topics
+
+    def _parse_topic_item(self, item: dict) -> Optional[Topic]:
+        title = item.get("title_sub") or item.get("title") or "未知超话"
+        buttons = item.get("buttons", []) or []
+        if not buttons:
+            return None
+
+        # 优先找可签到按钮
+        for b in buttons:
+            name = str(b.get("name", "")).strip()
+            scheme = b.get("scheme", "")
+            if name == "签到" and scheme:
+                return Topic(title=title, container_id="", scheme=scheme)
+
+        # 无可签到按钮但存在“已签/明日再来”等状态时，保留为已签到项
+        for b in buttons:
+            name = str(b.get("name", "")).strip()
+            if name in ("已签", "已签到", "明日再来"):
+                return Topic(title=title, container_id="", scheme="")
+
+        return None
+
+    async def checkin(self, topic: Topic) -> CheckinResult:
+        if not topic.scheme:
+            return CheckinResult(topic_title=topic.title, status="already", detail="已签到或明日再来")
+
+        # 相对路径补全
+        sign_url = topic.scheme
+        if sign_url.startswith("/"):
+            sign_url = f"{self.BASE_URL}{sign_url}"
+
+        try:
+            async with httpx.AsyncClient(timeout=10, headers=self.headers) as client:
+                resp = await client.get(sign_url)
+                resp.raise_for_status()
+                data = resp.json()
+
+            ok = data.get("ok")
+            msg = str((data.get("data") or {}).get("msg") or data.get("msg") or "")
+
+            if "已签" in msg or "明日再来" in msg:
+                return CheckinResult(topic_title=topic.title, status="already", detail=msg)
+
+            if ok == 1 and ("成功" in msg or "签到" in msg or msg == ""):
+                return CheckinResult(topic_title=topic.title, status="success", detail=msg or "签到成功")
+
+            return CheckinResult(topic_title=topic.title, status="failed", detail=msg or str(data))
+
+        except Exception as e:
+            logger.error(f"MWeiboProvider 签到失败 [{topic.title}]: {e}")
+            return CheckinResult(topic_title=topic.title, status="failed", detail=str(e))
+
+
 def get_provider(sub: str, subp: str, twm: str = "", provider_name: str = "") -> BaseProvider:
     """工厂函数: 获取签到策略 Provider"""
     name = provider_name or settings.CHECKIN_PROVIDER
 
     if name == "topicsub":
         return TopicsubProvider(sub, subp, twm)
+    if name == "mweibo":
+        return MWeiboProvider(sub, subp, twm)
     else:
         return CardlistProvider(sub, subp, twm)

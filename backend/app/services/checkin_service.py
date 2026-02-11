@@ -71,6 +71,25 @@ async def run_checkin(db: AsyncSession, account: Account) -> dict:
         logger.error(f"获取超话列表失败: {account_name}: {e}")
         topics = []
 
+    # 回退策略：主 Provider 获取为空时，尝试 m.weibo.cn 网页接口
+    if not topics:
+        try:
+            fallback_provider = get_provider(
+                account.cookie_sub or "",
+                account.cookie_subp or "",
+                account.cookie_twm or "",
+                provider_name="mweibo",
+            )
+            fallback_topics = await fallback_provider.get_topics()
+            if fallback_topics:
+                logger.info(
+                    f"主Provider未获取到超话，mweibo回退成功: {account_name}, topics={len(fallback_topics)}"
+                )
+                provider = fallback_provider
+                topics = fallback_topics
+        except Exception as e:
+            logger.warning(f"mweibo 回退获取超话失败: {account_name}: {e}")
+
     if not topics:
         logger.info(f"无可签到超话: {account_name}")
         stats = {

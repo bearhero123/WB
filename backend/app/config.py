@@ -14,7 +14,7 @@ class Settings(BaseSettings):
     # Server酱推送默认 SendKey
     DEFAULT_SENDKEY: str = ""
 
-    # 签到策略: cardlist 或 topicsub
+    # 签到策略: cardlist / topicsub / mweibo
     CHECKIN_PROVIDER: str = "cardlist"
 
     # 微博 API 抓包参数 (JSON 字符串)
