@@ -17,6 +17,7 @@ import threading
 import logging
 import re
 import tkinter as tk
+import webbrowser
 from tkinter import ttk, messagebox
 from typing import Dict, Optional
 from pathlib import Path
@@ -251,9 +252,11 @@ class CookieApp:
             "server_url": DEFAULT_SERVER_URL,
             "member_key": "",
             "account_name": "",
+            "sendkey": "",
             "sync_env": True,
             "schedule_enabled": True,
-            "schedule_time": DEFAULT_CHECKIN_TIME,
+            "schedule_hour": "08",
+            "schedule_minute": "00",
             "schedule_random_delay": DEFAULT_RANDOM_DELAY,
             "apply_schedule": True,
         }
@@ -265,9 +268,11 @@ class CookieApp:
             "server_url": self.server_url_var.get().strip(),
             "member_key": self.member_key_var.get().strip(),
             "account_name": self.account_name_var.get().strip(),
+            "sendkey": self.sendkey_var.get().strip(),
             "sync_env": bool(self.sync_env_var.get()),
             "schedule_enabled": bool(self.schedule_enabled_var.get()),
-            "schedule_time": self.schedule_time_var.get().strip(),
+            "schedule_hour": self.schedule_hour_var.get(),
+            "schedule_minute": self.schedule_minute_var.get(),
             "schedule_random_delay": self.schedule_random_delay_var.get().strip(),
             "apply_schedule": bool(self.apply_schedule_var.get()),
         }
@@ -341,15 +346,17 @@ class CookieApp:
         self.account_name_var = tk.StringVar(value=self.settings.get("account_name", ""))
         self.sync_env_var = tk.BooleanVar(value=bool(self.settings.get("sync_env", True)))
         self.schedule_enabled_var = tk.BooleanVar(value=bool(self.settings.get("schedule_enabled", True)))
-        self.schedule_time_var = tk.StringVar(value=str(self.settings.get("schedule_time", DEFAULT_CHECKIN_TIME)))
+        self.schedule_hour_var = tk.StringVar(value=str(self.settings.get("schedule_hour", "08")))
+        self.schedule_minute_var = tk.StringVar(value=str(self.settings.get("schedule_minute", "00")))
         self.schedule_random_delay_var = tk.StringVar(value=str(self.settings.get("schedule_random_delay", DEFAULT_RANDOM_DELAY)))
         self.apply_schedule_var = tk.BooleanVar(value=bool(self.settings.get("apply_schedule", True)))
 
         self._build_form_row(form, "服务器地址", self.server_url_var, 0, "例如：http://47.253.253.245:1234")
         self._build_form_row(form, "会员 Key", self.member_key_var, 1, "管理员下发给用户脚本的 Key", masked=True)
         self._build_form_row(form, "账号名(首次绑定必填)", self.account_name_var, 2, "例如：user_001")
-        self._build_form_row(form, "签到时间(HH:MM)", self.schedule_time_var, 3, "例如：08:00")
+        self._build_time_select_row(form, "签到时间", self.schedule_hour_var, self.schedule_minute_var, 3)
         self._build_form_row(form, "随机延迟(秒)", self.schedule_random_delay_var, 4, "0-86400，默认 300")
+        self._build_sendkey_row(form, "SendKey", self.sendkey_var, 5)
 
         opt_row = tk.Frame(sync_card, bg=CARD_BG)
         opt_row.pack(fill=tk.X, padx=16, pady=(0, 8))
@@ -385,14 +392,14 @@ class CookieApp:
         sync_btn_row.pack(fill=tk.X, padx=16, pady=(0, 12))
         self.verify_key_btn = StyledButton(sync_btn_row, text="验证 Key", command=self._verify_member_key, width=12, bg="#5c6bc0")
         self.verify_key_btn.pack(side=tk.LEFT, padx=(0, 8))
-        self.test_conn_btn = StyledButton(sync_btn_row, text="测试连通", command=self._test_connection, width=12, bg="#00897b")
-        self.test_conn_btn.pack(side=tk.LEFT, padx=(0, 8))
+        self.checkin_btn = StyledButton(sync_btn_row, text="立即签到", command=self._trigger_checkin, width=12, bg="#ef6c00")
+        self.checkin_btn.pack(side=tk.LEFT, padx=(0, 8))
         self.upload_btn = StyledButton(sync_btn_row, text="上传 Cookie 到服务器", command=self._upload_cookie_to_server, width=20, bg="#3949ab")
         self.upload_btn.pack(side=tk.LEFT)
 
         tk.Label(
             sync_card,
-            text="提示：测试连通只校验服务器访问与 Key 权限，不会写入 Cookie。",
+            text="提示：点击“立即签到”可远程触发服务器执行一次签到并反馈结果。",
             font=("微软雅黑", 8),
             bg=CARD_BG,
             fg="#9e9e9e",
@@ -485,6 +492,64 @@ class CookieApp:
         if placeholder:
             hint = tk.Label(row_frame, text=placeholder, font=("微软雅黑", 8), bg=CARD_BG, fg="#9e9e9e", anchor="w")
             hint.pack(side=tk.BOTTOM, fill=tk.X, padx=(145, 0), pady=(2, 0))
+
+    def _build_time_select_row(
+        self,
+        parent: tk.Widget,
+        label_text: str,
+        hour_var: tk.StringVar,
+        minute_var: tk.StringVar,
+        row_idx: int,
+    ):
+        """构建时间选择行 (HH:MM)"""
+        lbl = tk.Label(parent, text=label_text + "：", font=FONT_NORMAL, bg="white", anchor="e")
+        lbl.grid(row=row_idx, column=0, sticky="e", padx=(0, 10), pady=8)
+
+        frame = tk.Frame(parent, bg="white")
+        frame.grid(row=row_idx, column=1, sticky="w", padx=0, pady=8)
+
+        hours = [f"{h:02d}" for h in range(24)]
+        minutes = [f"{m:02d}" for m in range(60)]
+
+        cb_hour = ttk.Combobox(frame, textvariable=hour_var, values=hours, width=3, state="readonly", font=FONT_NORMAL)
+        cb_hour.pack(side=tk.LEFT)
+        tk.Label(frame, text=" : ", bg="white", font=FONT_NORMAL).pack(side=tk.LEFT)
+        cb_minute = ttk.Combobox(frame, textvariable=minute_var, values=minutes, width=3, state="readonly", font=FONT_NORMAL)
+        cb_minute.pack(side=tk.LEFT)
+
+    def _build_sendkey_row(
+        self,
+        parent: tk.Widget,
+        label_text: str,
+        var: tk.StringVar,
+        row_idx: int,
+        tip: str = "Server酱推送密钥",
+    ):
+        """构建 SendKey 行，带测试按钮和链接"""
+        lbl = tk.Label(parent, text=label_text + "：", font=FONT_NORMAL, bg="white", anchor="e")
+        lbl.grid(row=row_idx, column=0, sticky="e", padx=(0, 10), pady=8)
+
+        frame = tk.Frame(parent, bg="white")
+        frame.grid(row=row_idx, column=1, sticky="ew", padx=0, pady=8)
+
+        entry = ttk.Entry(frame, textvariable=var, font=FONT_NORMAL)
+        entry.pack(side=tk.LEFT, fill=tk.X, expand=True)
+
+        # 获取链接按钮
+        def _open_link():
+            webbrowser.open("https://sct.ftqq.com/sendkey")
+
+        link_btn = ttk.Button(frame, text="获取 Key", command=_open_link, width=8)
+        link_btn.pack(side=tk.LEFT, padx=(5, 0))
+
+        # 测试推送按钮
+        test_btn = ttk.Button(frame, text="测试推送", command=self._test_push, width=8)
+        test_btn.pack(side=tk.LEFT, padx=(5, 0))
+
+        if tip:
+            tip_lbl = tk.Label(parent, text=tip, font=("微软雅黑", 8), fg="gray", bg="white")
+            tip_lbl.grid(row=row_idx, column=2, sticky="w", padx=(10, 0))
+
 
     # ---------- 状态更新 ----------
     def _set_status(self, msg: str, color: str = TEXT_SECONDARY):
@@ -668,22 +733,22 @@ class CookieApp:
         self.is_syncing = busy
         if hasattr(self, "verify_key_btn"):
             self.verify_key_btn.set_enabled(not busy)
-        if hasattr(self, "test_conn_btn"):
-            self.test_conn_btn.set_enabled(not busy)
+        if hasattr(self, "checkin_btn"):
+            self.checkin_btn.set_enabled(not busy)
         if hasattr(self, "upload_btn"):
             self.upload_btn.set_enabled(not busy)
 
     def _build_schedule_payload(self) -> Optional[dict]:
-        raw_time = (self.schedule_time_var.get() or "").strip() or DEFAULT_CHECKIN_TIME
-        match = re.match(r"^(\d{1,2}):(\d{2})$", raw_time)
-        if not match:
-            messagebox.showwarning("提示", "签到时间格式错误，请使用 HH:MM，例如 08:00。")
-            return None
+        hour = self.schedule_hour_var.get()
+        minute = self.schedule_minute_var.get()
 
-        hour = int(match.group(1))
-        minute = int(match.group(2))
-        if not (0 <= hour <= 23 and 0 <= minute <= 59):
-            messagebox.showwarning("提示", "签到时间超出范围，小时应为 0-23，分钟应为 0-59。")
+        try:
+            h = int(hour)
+            m = int(minute)
+            if not (0 <= h <= 23 and 0 <= m <= 59):
+                raise ValueError
+        except ValueError:
+            messagebox.showwarning("提示", "签到时间格式错误。")
             return None
 
         raw_delay = (self.schedule_random_delay_var.get() or "").strip()
@@ -702,7 +767,7 @@ class CookieApp:
 
         return {
             "enabled": bool(self.schedule_enabled_var.get()),
-            "time": f"{hour:02d}:{minute:02d}",
+            "time": f"{h:02d}:{m:02d}",
             "random_delay": delay,
         }
 
@@ -710,6 +775,7 @@ class CookieApp:
         server_url = self.server_url_var.get().strip().rstrip("/")
         member_key = self.member_key_var.get().strip()
         account_name = self.account_name_var.get().strip()
+        sendkey = self.sendkey_var.get().strip()
         sync_env = bool(self.sync_env_var.get())
         apply_schedule = bool(self.apply_schedule_var.get())
         schedule = None
@@ -737,6 +803,7 @@ class CookieApp:
             "server_url": server_url,
             "member_key": member_key,
             "account_name": account_name,
+            "sendkey": sendkey,
             "sync_env": sync_env,
             "apply_schedule": apply_schedule,
             "schedule": schedule,
@@ -819,44 +886,7 @@ class CookieApp:
 
         self.root.after(0, _finish)
 
-    def _test_connection(self):
-        if self.is_syncing:
-            return
-        opts = self._collect_server_options(require_account=False, include_schedule=False)
-        if not opts:
-            return
 
-        self._set_sync_busy(True)
-        self._set_status("⏳ 正在测试服务器连通性…", ACCENT)
-        threading.Thread(target=self._test_connection_worker, args=(opts,), daemon=True).start()
-
-    def _test_connection_worker(self, opts: dict):
-        started_at = time.time()
-        ok, status_code, data = self._api_post_json(
-            server_url=opts["server_url"],
-            path="/api/external/key/verify",
-            payload={},
-            member_key=opts["member_key"],
-        )
-        latency_ms = int((time.time() - started_at) * 1000)
-
-        def _finish():
-            self._set_sync_busy(False)
-            if ok:
-                account_name = (data.get("account_name") or "").strip() or "未绑定"
-                self._set_status("✓ 连通性测试通过", SUCCESS)
-                messagebox.showinfo(
-                    "测试成功",
-                    f"服务器可访问，会员 Key 可用。\n"
-                    f"延迟：{latency_ms} ms\n"
-                    f"绑定账号：{account_name}",
-                )
-            else:
-                msg = data.get("message") or f"HTTP {status_code}"
-                self._set_status("✗ 连通性测试失败", "#e53935")
-                messagebox.showerror("测试失败", msg)
-
-        self.root.after(0, _finish)
 
     def _upload_cookie_to_server(self):
         if self.is_syncing:

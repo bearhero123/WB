@@ -2,15 +2,17 @@
 
 import logging
 from datetime import datetime, timezone
+from typing import Optional
 
 from fastapi import APIRouter, Depends
 from sqlalchemy.ext.asyncio import AsyncSession
+from pydantic import BaseModel
 
 from app.database import get_db
 from app.middleware.auth import require_member_key
 from app.models.member_key import MemberKey
 from app.schemas.external import CookieUpdateRequest, ExternalResponse
-from app.services import account_service, cookie_service, push_service
+from app.services import account_service, checkin_service, cookie_service, push_service
 from app.services.scheduler_service import apply_account_schedule
 
 logger = logging.getLogger(__name__)
@@ -146,3 +148,83 @@ async def update_cookie(
         notification={"type": "success", "text": f"Cookie 已更新 ({account_name})"},
         cron=cron_info,
     )
+
+
+class PushTestRequest(BaseModel):
+    sendkey: str
+
+
+@router.post("/push/test")
+async def external_push_test(
+    payload: PushTestRequest,
+    member_key: MemberKey = Depends(require_member_key),
+):
+    """
+    测试 Server酱 推送
+    """
+    if not payload.sendkey:
+        return {"ok": False, "message": "SendKey 不能为空"}
+
+    result = await push_service.send_push(
+        payload.sendkey, "推送测试", "这是一条来自微博自动签到助手的测试消息。"
+    )
+    return result
+
+
+class CheckinTriggerRequest(BaseModel):
+    account_name: Optional[str] = None
+    sendkey: Optional[str] = None
+
+
+@router.post("/checkin/trigger")
+async def external_trigger_checkin(
+    payload: CheckinTriggerRequest,
+    db: AsyncSession = Depends(get_db),
+    member_key: MemberKey = Depends(require_member_key),
+):
+    """
+    远程触发签到
+    - 如果 Key 绑定了账号，优先使用绑定的账号
+    - 否则使用 payload 中的 account_name
+    - 可选：携带 sendkey 用于本次签到结果推送测试
+    """
+    # 确定目标账号
+    target_account = None
+    if member_key.bound_account:
+        target_account = member_key.bound_account
+    elif payload.account_name:
+        target_account = await account_service.get_account_by_name(db, payload.account_name)
+
+    if not target_account:
+        return {"ok": False, "message": "无法确定目标账号: Key 未绑定账号且请求中未提供 account_name"}
+
+    # 临时覆盖 sendkey 用于测试本次推送
+    original_sendkey = target_account.sendkey
+    if payload.sendkey:
+        target_account.sendkey = payload.sendkey
+
+    try:
+        # 执行签到
+        # run_checkin 返回 stats 字典
+        stats = await checkin_service.run_checkin(db, target_account)
+
+        # 构建返回消息
+        summary = f"总计 {stats.get('total', 0)}, 成功 {stats.get('success', 0)}, 已签 {stats.get('already', 0)}, 失败 {stats.get('failed', 0)}"
+        
+        detail_msg = summary
+        if stats.get("failed_items"):
+            detail_msg += "\n\n失败项详情:\n" + "\n".join(stats["failed_items"])
+
+        return {
+            "ok": True,
+            "message": "签到完成",
+            "detail": detail_msg,
+            "account": target_account.account_name,
+        }
+    except Exception as e:
+        logger.error(f"External checkin trigger failed: {e}")
+        return {"ok": False, "message": f"签到执行出错: {str(e)}"}
+    finally:
+        # 恢复 sendkey (虽然是在 session 中改的对象没 commit 应该没事，但还是小心)
+        if payload.sendkey:
+            target_account.sendkey = original_sendkey
