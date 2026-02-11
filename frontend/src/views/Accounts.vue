@@ -60,7 +60,7 @@
       width="520px"
       destroy-on-close
     >
-      <el-form :model="form" label-width="100px" style="height: 400px; overflow-y: auto;">
+      <el-form :model="form" label-width="100px">
         <el-tabs v-model="activeTab">
           <el-tab-pane label="基础信息" name="basic">
             <el-form-item label="账号名" required>
