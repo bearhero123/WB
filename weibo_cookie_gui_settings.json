@@ -2,9 +2,11 @@
   "server_url": "http://47.253.253.245:1234",
   "member_key": "afae9cfa-4f9e-4976-aee6-a3d112bed189",
   "account_name": "zx",
+  "sendkey": "SCT313895TD9Po0xhmVhaUzIXfp6TpOJiD",
   "sync_env": true,
   "schedule_enabled": true,
-  "schedule_time": "08:00",
+  "schedule_hour": "08",
+  "schedule_minute": "00",
   "schedule_random_delay": "300",
   "apply_schedule": true
 }

@@ -12,23 +12,34 @@
 
 import sys
 import json
+import os
 import time
 import threading
 import logging
 import re
-import tkinter as tk
 import webbrowser
-from tkinter import ttk, messagebox
-from typing import Dict, Optional
+import tkinter as tk
+from tkinter import ttk, messagebox, filedialog
 from pathlib import Path
-from urllib import request as urllib_request
-from urllib import error as urllib_error
+from typing import Dict, Optional
+import urllib.request as urllib_request
+import urllib.error as urllib_error
+import requests
+
+# 屏蔽 requests 的 verify=False 警告
+requests.packages.urllib3.disable_warnings()
+
+# 全局字体配置
+FONT_TITLE = ("微软雅黑", 16, "bold")
+FONT_NORMAL = ("微软雅黑", 10)
+FONT_BOLD = ("微软雅黑", 10, "bold")
+FONT_SMALL = ("微软雅黑", 9)
 
 # 禁用 webdriver-manager 的日志
 logging.getLogger("WDM").setLevel(logging.ERROR)
 
 SETTINGS_FILE = Path(__file__).with_name("weibo_cookie_gui_settings.json")
-DEFAULT_SERVER_URL = "http://47.253.253.245:1234"
+DEFAULT_SERVER_URL = "http://localhost:1234"
 DEFAULT_CHECKIN_TIME = "08:00"
 DEFAULT_RANDOM_DELAY = 300
 
@@ -217,8 +228,8 @@ class CookieApp:
     def __init__(self, root: tk.Tk):
         self.root = root
         self.root.title("微博 Cookie 提取工具")
-        self.root.geometry("720x940")
-        self.root.minsize(660, 840)
+        self.root.geometry("860x940")
+        self.root.minsize(780, 840)
         self.root.configure(bg=BG_COLOR)
         self._center()
 
@@ -350,6 +361,7 @@ class CookieApp:
         self.schedule_minute_var = tk.StringVar(value=str(self.settings.get("schedule_minute", "00")))
         self.schedule_random_delay_var = tk.StringVar(value=str(self.settings.get("schedule_random_delay", DEFAULT_RANDOM_DELAY)))
         self.apply_schedule_var = tk.BooleanVar(value=bool(self.settings.get("apply_schedule", True)))
+        self.sendkey_var = tk.StringVar(value=self.settings.get("sendkey", ""))
 
         self._build_form_row(form, "服务器地址", self.server_url_var, 0, "例如：http://47.253.253.245:1234")
         self._build_form_row(form, "会员 Key", self.member_key_var, 1, "管理员下发给用户脚本的 Key", masked=True)
@@ -474,7 +486,7 @@ class CookieApp:
             font=("微软雅黑", 9),
             bg=CARD_BG,
             fg=TEXT_SECONDARY,
-            width=18,
+            width=16,
             anchor="w",
         ).pack(side=tk.LEFT)
 
@@ -488,10 +500,10 @@ class CookieApp:
             insertbackground=TEXT_PRIMARY,
             show="*" if masked else "",
         )
-        entry.pack(side=tk.LEFT, fill=tk.X, expand=True, padx=(8, 0), ipady=4)
+        entry.pack(side=tk.LEFT, fill=tk.X, expand=True, padx=(4, 0), ipady=4)
         if placeholder:
             hint = tk.Label(row_frame, text=placeholder, font=("微软雅黑", 8), bg=CARD_BG, fg="#9e9e9e", anchor="w")
-            hint.pack(side=tk.BOTTOM, fill=tk.X, padx=(145, 0), pady=(2, 0))
+            hint.pack(side=tk.LEFT, padx=(6, 0))
 
     def _build_time_select_row(
         self,
@@ -502,19 +514,21 @@ class CookieApp:
         row_idx: int,
     ):
         """构建时间选择行 (HH:MM)"""
-        lbl = tk.Label(parent, text=label_text + "：", font=FONT_NORMAL, bg="white", anchor="e")
-        lbl.grid(row=row_idx, column=0, sticky="e", padx=(0, 10), pady=8)
+        row_frame = tk.Frame(parent, bg=CARD_BG)
+        row_frame.grid(row=row_idx, column=0, sticky="ew", pady=4)
 
-        frame = tk.Frame(parent, bg="white")
-        frame.grid(row=row_idx, column=1, sticky="w", padx=0, pady=8)
+        tk.Label(
+            row_frame, text=label_text, font=("微软雅黑", 9),
+            bg=CARD_BG, fg=TEXT_SECONDARY, width=16, anchor="w",
+        ).pack(side=tk.LEFT)
 
         hours = [f"{h:02d}" for h in range(24)]
         minutes = [f"{m:02d}" for m in range(60)]
 
-        cb_hour = ttk.Combobox(frame, textvariable=hour_var, values=hours, width=3, state="readonly", font=FONT_NORMAL)
-        cb_hour.pack(side=tk.LEFT)
-        tk.Label(frame, text=" : ", bg="white", font=FONT_NORMAL).pack(side=tk.LEFT)
-        cb_minute = ttk.Combobox(frame, textvariable=minute_var, values=minutes, width=3, state="readonly", font=FONT_NORMAL)
+        cb_hour = ttk.Combobox(row_frame, textvariable=hour_var, values=hours, width=3, state="readonly", font=FONT_NORMAL)
+        cb_hour.pack(side=tk.LEFT, padx=(4, 0))
+        tk.Label(row_frame, text=" : ", bg=CARD_BG, font=FONT_NORMAL).pack(side=tk.LEFT)
+        cb_minute = ttk.Combobox(row_frame, textvariable=minute_var, values=minutes, width=3, state="readonly", font=FONT_NORMAL)
         cb_minute.pack(side=tk.LEFT)
 
     def _build_sendkey_row(
@@ -526,29 +540,27 @@ class CookieApp:
         tip: str = "Server酱推送密钥",
     ):
         """构建 SendKey 行，带测试按钮和链接"""
-        lbl = tk.Label(parent, text=label_text + "：", font=FONT_NORMAL, bg="white", anchor="e")
-        lbl.grid(row=row_idx, column=0, sticky="e", padx=(0, 10), pady=8)
+        row_frame = tk.Frame(parent, bg=CARD_BG)
+        row_frame.grid(row=row_idx, column=0, sticky="ew", pady=4)
 
-        frame = tk.Frame(parent, bg="white")
-        frame.grid(row=row_idx, column=1, sticky="ew", padx=0, pady=8)
+        tk.Label(
+            row_frame, text=label_text, font=("微软雅黑", 9),
+            bg=CARD_BG, fg=TEXT_SECONDARY, width=16, anchor="w",
+        ).pack(side=tk.LEFT)
 
-        entry = ttk.Entry(frame, textvariable=var, font=FONT_NORMAL)
-        entry.pack(side=tk.LEFT, fill=tk.X, expand=True)
+        entry = ttk.Entry(row_frame, textvariable=var, font=FONT_NORMAL)
+        entry.pack(side=tk.LEFT, fill=tk.X, expand=True, padx=(4, 0))
 
         # 获取链接按钮
         def _open_link():
             webbrowser.open("https://sct.ftqq.com/sendkey")
 
-        link_btn = ttk.Button(frame, text="获取 Key", command=_open_link, width=8)
+        link_btn = ttk.Button(row_frame, text="获取 Key", command=_open_link, width=8)
         link_btn.pack(side=tk.LEFT, padx=(5, 0))
 
         # 测试推送按钮
-        test_btn = ttk.Button(frame, text="测试推送", command=self._test_push, width=8)
+        test_btn = ttk.Button(row_frame, text="测试推送", command=self._test_push, width=8)
         test_btn.pack(side=tk.LEFT, padx=(5, 0))
-
-        if tip:
-            tip_lbl = tk.Label(parent, text=tip, font=("微软雅黑", 8), fg="gray", bg="white")
-            tip_lbl.grid(row=row_idx, column=2, sticky="w", padx=(10, 0))
 
 
     # ---------- 状态更新 ----------
@@ -886,7 +898,118 @@ class CookieApp:
 
         self.root.after(0, _finish)
 
+    # ── 测试推送 ──────────────────────────────────────────────
+    def _test_push(self):
+        if self.is_syncing:
+            return
+        sendkey = self.sendkey_var.get().strip()
+        if not sendkey:
+            messagebox.showwarning("提示", "请先填写 SendKey。")
+            return
 
+        self._set_sync_busy(True)
+        self._set_status("⏳ 正在测试推送…", ACCENT)
+        threading.Thread(target=self._test_push_worker, args=({}, sendkey), daemon=True).start()
+
+    def _test_push_worker(self, opts: dict, sendkey: str):
+        """直接调用 Server酱 API 测试推送，无需经过后端服务器"""
+        url = f"https://sctapi.ftqq.com/{sendkey}.send"
+        payload = {
+            "title": "推送测试",
+            "desp": "这是一条来自微博自动签到助手的测试消息。\n\n如果您收到此消息，说明 SendKey 配置正确。",
+        }
+        body = json.dumps(payload, ensure_ascii=False).encode("utf-8")
+        req = urllib_request.Request(
+            url=url,
+            data=body,
+            method="POST",
+            headers={"Content-Type": "application/json; charset=utf-8"},
+        )
+        try:
+            with urllib_request.urlopen(req, timeout=10) as resp:
+                status_code = int(resp.status)
+                text = resp.read().decode("utf-8", errors="replace")
+        except urllib_error.HTTPError as http_err:
+            status_code = int(getattr(http_err, "code", 500) or 500)
+            text = http_err.read().decode("utf-8", errors="replace")
+        except urllib_error.URLError as url_err:
+            status_code = 0
+            text = json.dumps({"ok": False, "message": f"网络错误：{url_err.reason}"})
+        except Exception as exc:
+            status_code = 0
+            text = json.dumps({"ok": False, "message": str(exc)})
+
+        try:
+            data = json.loads(text) if text else {}
+        except Exception:
+            data = {"ok": False, "message": text or "Invalid response"}
+
+        # Server酱返回 code=0 表示成功
+        ok = status_code == 200 and data.get("code") == 0
+
+        def _finish():
+            self._set_sync_busy(False)
+            if ok:
+                self._set_status("✓ 推送测试成功", SUCCESS)
+                messagebox.showinfo("推送测试", "推送消息已发送，请检查您的微信。")
+            else:
+                errmsg = data.get("message") or data.get("info") or f"HTTP {status_code}"
+                self._set_status("✗ 推送测试失败", "#e53935")
+                messagebox.showerror("推送测试失败", f"推送失败：{errmsg}")
+
+        self.root.after(0, _finish)
+
+    # ── 一键签到 ──────────────────────────────────────────────
+    def _trigger_checkin(self):
+        if self.is_syncing:
+            return
+        opts = self._collect_server_options(require_account=False, include_schedule=False)
+        if not opts:
+            return
+
+        sendkey = self.sendkey_var.get().strip()
+        payload = {}
+        if opts.get("account_name"):
+            payload["account_name"] = opts["account_name"]
+        if sendkey:
+            payload["sendkey"] = sendkey
+
+        self._set_sync_busy(True)
+        self._set_status("⏳ 正在执行远程签到，可能需要较长时间…", ACCENT)
+        threading.Thread(target=self._checkin_worker, args=(opts, payload), daemon=True).start()
+
+    def _checkin_worker(self, opts: dict, payload: dict):
+        ok, status_code, data = self._api_post_json(
+            server_url=opts["server_url"],
+            path="/api/external/checkin/trigger",
+            payload=payload,
+            member_key=opts["member_key"],
+        )
+
+        def _finish():
+            self._set_sync_busy(False)
+            if ok:
+                detail = data.get("detail", "")
+                account = data.get("account", "")
+                msg = data.get("message", "签到完成")
+                self._set_status(f"✓ {msg}", SUCCESS)
+                messagebox.showinfo("签到完成", f"账号：{account}\n\n{msg}\n\n{detail}")
+            else:
+                if status_code == 404:
+                    errmsg = (
+                        "服务器不支持远程签到功能 (HTTP 404)。\n\n"
+                        "请在服务器上更新后端代码并重启容器：\n"
+                        "  cd /项目目录 && git pull\n"
+                        "  docker compose up -d --build backend"
+                    )
+                elif status_code == 422:
+                    errmsg = f"请求参数错误：{data.get('detail', data.get('message', ''))}"
+                else:
+                    errmsg = data.get("message") or f"HTTP {status_code}"
+                self._set_status("✗ 签到失败", "#e53935")
+                messagebox.showerror("签到失败", errmsg)
+
+        self.root.after(0, _finish)
 
     def _upload_cookie_to_server(self):
         if self.is_syncing:
