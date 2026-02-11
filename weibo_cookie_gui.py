@@ -21,7 +21,7 @@ import webbrowser
 import tkinter as tk
 from tkinter import ttk, messagebox, filedialog
 from pathlib import Path
-from typing import Dict, Optional
+from typing import Dict, Optional, Tuple
 import urllib.request as urllib_request
 import urllib.error as urllib_error
 import requests
@@ -62,6 +62,7 @@ class WeiboCookieGetter:
     """微博 Cookie 获取器（与 v1 逻辑一致，增强登录判断）"""
 
     DEFAULT_URL = "https://m.weibo.cn/p/tabbar?containerid=100803_-_recentvisit"
+    LOGIN_VERIFY_URL = "https://m.weibo.cn/api/config"
     COOKIE_FIELDS = ["SUB", "SUBP", "_T_WM"]
 
     def __init__(self):
@@ -126,6 +127,70 @@ class WeiboCookieGetter:
         all_cookies = self._get_all_cookies()
         return {field: all_cookies.get(field) for field in self.COOKIE_FIELDS}
 
+    def _verify_login_by_api(self, all_cookies: Dict[str, str]) -> bool:
+        """通过 m.weibo.cn/api/config 二次确认是否真的已登录。"""
+        cookie_header = "; ".join(
+            f"{k}={v}" for k, v in all_cookies.items() if v
+        )
+        if not cookie_header:
+            return False
+
+        try:
+            resp = requests.get(
+                self.LOGIN_VERIFY_URL,
+                headers={
+                    "User-Agent": self.driver.execute_script("return navigator.userAgent") if self.driver else "",
+                    "Referer": "https://m.weibo.cn/",
+                    "Cookie": cookie_header,
+                },
+                timeout=8,
+                verify=False,
+            )
+            if resp.status_code != 200:
+                return False
+
+            payload = resp.json() if resp.content else {}
+            data = (payload or {}).get("data") or {}
+            login_flag = data.get("login")
+            if isinstance(login_flag, str):
+                login_flag = login_flag.lower() in ("1", "true", "yes")
+
+            uid = data.get("uid")
+            return bool(login_flag and uid)
+        except Exception:
+            return False
+
+    def check_login_state(self) -> Tuple[bool, str]:
+        """返回 (是否已登录, 状态原因)；用于 GUI 给出更准确提示。"""
+        if not self.driver:
+            return False, "no_driver"
+
+        try:
+            current_url = self.driver.current_url or ""
+
+            if "passport." in current_url or "login." in current_url:
+                return False, "in_login_flow"
+
+            all_cookies = self._get_all_cookies()
+            sub = all_cookies.get("SUB", "")
+            subp = all_cookies.get("SUBP", "")
+
+            if not sub or len(sub) <= 50:
+                return False, "sub_invalid"
+
+            if self._initial_sub and sub == self._initial_sub:
+                return False, "visitor_cookie"
+
+            if not subp:
+                return False, "missing_subp"
+
+            if not self._verify_login_by_api(all_cookies):
+                return False, "api_not_confirmed"
+
+            return True, "ok"
+        except Exception:
+            return False, "check_failed"
+
     # ---------- 登录检测（增强版 v1 逻辑）----------
     def is_logged_in(self) -> bool:
         """
@@ -134,35 +199,8 @@ class WeiboCookieGetter:
           2. SUB 存在，长度 > 50，且与访客阶段的 SUB 不同
           3. SUBP 必须存在（这是区分访客和登录用户的核心标志）
         """
-        if not self.driver:
-            return False
-
-        try:
-            current_url = self.driver.current_url or ""
-
-            # 如果页面在 passport / login 域名上 → 用户正在登录过程中
-            if "passport." in current_url or "login." in current_url:
-                return False
-
-            all_cookies = self._get_all_cookies()
-            sub = all_cookies.get("SUB", "")
-            subp = all_cookies.get("SUBP", "")
-
-            # 条件 1：SUB 存在且足够长
-            if not sub or len(sub) <= 50:
-                return False
-
-            # 条件 2：SUB 必须和访客时的不同
-            if self._initial_sub and sub == self._initial_sub:
-                return False
-
-            # 条件 3：SUBP 必须存在（访客绝对没有 SUBP，这是最可靠的判断）
-            if not subp:
-                return False
-
-            return True
-        except Exception:
-            return False
+        ok, _ = self.check_login_state()
+        return ok
 
     # ---------- 关闭浏览器 (同 v1) ----------
     def close(self):
@@ -235,6 +273,7 @@ class CookieApp:
 
         self.getter = WeiboCookieGetter()
         self.is_checking = False
+        self._login_confirm_hits = 0
         self.last_cookies: Dict[str, Optional[str]] = {}
         self.settings = self._load_settings()
         self.is_syncing = False
@@ -583,6 +622,7 @@ class CookieApp:
             self.root.after(0, lambda: self._set_status("⏳ 浏览器已打开，正在加载页面…", ACCENT))
             self.getter.open_page()
             self.is_checking = True
+            self._login_confirm_hits = 0
             self._was_in_login_flow = False
             self.root.after(0, lambda: self._set_status(
                 "⏳ 等待登录中… 请在浏览器中登录微博", WARNING))
@@ -619,11 +659,31 @@ class CookieApp:
             self.root.after(1500, self._check_login)
             return
 
-        # 已不在 passport/login 域名上
-        if self.getter.is_logged_in():
-            self._on_login_success()
-        elif self._was_in_login_flow:
+        # 已不在 passport/login 域名上，执行严格检测
+        ok, reason = self.getter.check_login_state()
+        if ok:
+            self._login_confirm_hits += 1
+            if self._login_confirm_hits >= 2:
+                self._on_login_success()
+                return
+            self._set_status("⏳ 登录态已识别，正在二次确认…", ACCENT)
+            self.root.after(1200, self._check_login)
+            return
+
+        self._login_confirm_hits = 0
+
+        if reason in ("visitor_cookie", "missing_subp", "api_not_confirmed"):
+            self._set_status("⏳ 检测到访客态 Cookie，继续等待登录完成…", WARNING)
+            self.root.after(1500, self._check_login)
+            return
+
+        # 保留原跳转回主站补抓逻辑
+        if reason == "sub_invalid" and self._was_in_login_flow:
             # 刚从 passport 域名跳回来，需要导航回目标页面拿 Cookie
+            self._was_in_login_flow = False
+            self._set_status("⏳ 登录流程完成，正在跳转回微博获取 Cookie…", ACCENT)
+            threading.Thread(target=self._navigate_back_and_check, daemon=True).start()
+        elif self._was_in_login_flow:
             self._was_in_login_flow = False
             self._set_status("⏳ 登录流程完成，正在跳转回微博获取 Cookie…", ACCENT)
             threading.Thread(target=self._navigate_back_and_check, daemon=True).start()
@@ -636,7 +696,8 @@ class CookieApp:
         try:
             self.getter.driver.get(self.getter.url)
             time.sleep(3)
-            if self.getter.is_logged_in():
+            ok, _ = self.getter.check_login_state()
+            if ok:
                 self.root.after(0, self._on_login_success)
                 return
         except Exception:
