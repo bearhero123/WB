@@ -3,10 +3,15 @@
 from typing import Optional, List
 from sqlalchemy import select
 from sqlalchemy.ext.asyncio import AsyncSession
+from sqlalchemy.orm import selectinload
 
 from app.models.member_key import MemberKey
 from app.schemas.member_key import MemberKeyCreate, MemberKeyUpdate
 from app.utils.security import generate_member_key, hash_key
+
+
+def _key_query():
+    return select(MemberKey).options(selectinload(MemberKey.bound_account))
 
 
 async def get_keys(
@@ -14,14 +19,14 @@ async def get_keys(
 ) -> List[MemberKey]:
     """获取 Key 列表"""
     result = await db.execute(
-        select(MemberKey).order_by(MemberKey.id.desc()).offset(skip).limit(limit)
+        _key_query().order_by(MemberKey.id.desc()).offset(skip).limit(limit)
     )
     return list(result.scalars().all())
 
 
 async def get_key_by_id(db: AsyncSession, key_id: int) -> Optional[MemberKey]:
     """根据 ID 获取 Key"""
-    result = await db.execute(select(MemberKey).where(MemberKey.id == key_id))
+    result = await db.execute(_key_query().where(MemberKey.id == key_id))
     return result.scalar_one_or_none()
 
 
@@ -48,12 +53,12 @@ async def create_key(db: AsyncSession, data: MemberKeyCreate) -> tuple[MemberKey
     db.add(member_key)
     await db.commit()
     await db.refresh(member_key)
-    return member_key, plain_key
+    return (await get_key_by_id(db, member_key.id) or member_key), plain_key
 
 
 async def update_key(db: AsyncSession, key_id: int, data: MemberKeyUpdate) -> Optional[MemberKey]:
     """更新 Key"""
-    result = await db.execute(select(MemberKey).where(MemberKey.id == key_id))
+    result = await db.execute(_key_query().where(MemberKey.id == key_id))
     member_key = result.scalar_one_or_none()
     if not member_key:
         return None
@@ -66,7 +71,7 @@ async def update_key(db: AsyncSession, key_id: int, data: MemberKeyUpdate) -> Op
         setattr(member_key, key, value)
     await db.commit()
     await db.refresh(member_key)
-    return member_key
+    return await get_key_by_id(db, key_id) or member_key
 
 
 async def delete_key(db: AsyncSession, key_id: int) -> bool:

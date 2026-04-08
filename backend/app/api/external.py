@@ -20,14 +20,22 @@ logger = logging.getLogger(__name__)
 router = APIRouter(prefix="/api/external", tags=["External"])
 
 
+async def _get_bound_account(db: AsyncSession, member_key: MemberKey):
+    if not member_key.bound_account_id:
+        return None
+    return await account_service.get_account_by_id(db, member_key.bound_account_id)
+
+
 @router.post("/key/verify", response_model=ExternalResponse)
 async def verify_key(
+    db: AsyncSession = Depends(get_db),
     member_key: MemberKey = Depends(require_member_key),
 ):
     """验证会员密钥"""
     account_name = None
-    if member_key.bound_account:
-        account_name = member_key.bound_account.account_name
+    bound_account = await _get_bound_account(db, member_key)
+    if bound_account:
+        account_name = bound_account.account_name
 
     return ExternalResponse(
         ok=True,
@@ -51,8 +59,9 @@ async def update_cookie(
     """
     # 确定目标账号名
     account_name = None
-    if member_key.bound_account:
-        account_name = member_key.bound_account.account_name
+    bound_account = await _get_bound_account(db, member_key)
+    if bound_account:
+        account_name = bound_account.account_name
     elif payload.account_name:
         account_name = payload.account_name.strip()
 
@@ -196,8 +205,8 @@ async def external_trigger_checkin(
     """
     # 确定目标账号
     target_account = None
-    if member_key.bound_account:
-        target_account = member_key.bound_account
+    if member_key.bound_account_id:
+        target_account = await _get_bound_account(db, member_key)
     elif payload.account_name:
         target_account = await account_service.get_account_by_name(db, payload.account_name)
 

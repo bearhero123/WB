@@ -4,9 +4,11 @@ from datetime import datetime, timezone
 from fastapi import Header, HTTPException, Depends
 from sqlalchemy import select
 from sqlalchemy.ext.asyncio import AsyncSession
+from sqlalchemy.orm import selectinload
 
 from app.config import settings
 from app.database import get_db
+from app.models.account import Account
 from app.models.member_key import MemberKey
 from app.utils.security import hash_key
 
@@ -38,7 +40,13 @@ async def require_member_key(
         )
 
     key_hashed = hash_key(raw_key)
-    result = await db.execute(select(MemberKey).where(MemberKey.key_hash == key_hashed))
+    result = await db.execute(
+        select(MemberKey)
+        .options(
+            selectinload(MemberKey.bound_account).selectinload(Account.member_keys)
+        )
+        .where(MemberKey.key_hash == key_hashed)
+    )
     member_key = result.scalar_one_or_none()
 
     if not member_key:

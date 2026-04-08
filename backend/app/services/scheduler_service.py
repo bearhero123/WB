@@ -1,63 +1,86 @@
-"""APScheduler 定时调度管理"""
+"""APScheduler job management for daily check-in tasks."""
 
+import asyncio
 import logging
 import random
-from datetime import datetime
+from datetime import datetime, timezone
+from zoneinfo import ZoneInfo
 
 from apscheduler.schedulers.asyncio import AsyncIOScheduler
 from apscheduler.triggers.cron import CronTrigger
+from sqlalchemy import select
 
 from app.database import async_session
 from app.models.account import Account
 from app.services import checkin_service
-from sqlalchemy import select
 
 logger = logging.getLogger(__name__)
 
-scheduler = AsyncIOScheduler(timezone="Asia/Shanghai")
+SCHEDULER_TZ = "Asia/Shanghai"
+scheduler = AsyncIOScheduler(timezone=SCHEDULER_TZ)
 
 
-async def _run_checkin_job(account_id: int):
-    """调度器执行的签到任务"""
-    async with async_session() as db:
-        result = await db.execute(select(Account).where(Account.id == account_id))
-        account = result.scalar_one_or_none()
+def _parse_schedule_time(raw_time: str | None) -> tuple[int, int]:
+    """Parse HH:mm value and fall back to 08:00."""
+    try:
+        if not raw_time:
+            raise ValueError("empty schedule time")
+        parts = raw_time.split(":")
+        hour = int(parts[0])
+        minute = int(parts[1])
+        if not (0 <= hour <= 23 and 0 <= minute <= 59):
+            raise ValueError("invalid schedule range")
+        return hour, minute
+    except Exception:
+        return 8, 0
 
-        if not account:
-            logger.warning(f"定时任务: 账号 ID {account_id} 不存在, 跳过")
-            return
 
-        if not account.schedule_enabled:
-            logger.info(f"定时任务: 账号 {account.account_name} 已禁用, 跳过")
-            return
-
-        # 随机延迟
-        delay = random.randint(0, account.schedule_random_delay)
-        if delay > 0:
-            logger.info(f"定时任务: {account.account_name} 随机延迟 {delay}s")
-            import asyncio
-            await asyncio.sleep(delay)
-
-        logger.info(f"定时任务开始: {account.account_name}")
-        try:
-            await checkin_service.run_checkin(db, account)
-        except Exception as e:
-            logger.error(f"定时任务异常: {account.account_name}: {e}")
+def _to_local(dt: datetime | None, tz: ZoneInfo) -> datetime | None:
+    """Convert stored datetime (naive UTC in DB) to target timezone."""
+    if not dt:
+        return None
+    if dt.tzinfo is None:
+        dt = dt.replace(tzinfo=timezone.utc)
+    return dt.astimezone(tz)
 
 
 def _make_job_id(account_id: int) -> str:
     return f"checkin_{account_id}"
 
 
-async def apply_account_schedule(account_id: int, account: Account = None):
-    """应用/更新单个账号的定时任务"""
-    job_id = _make_job_id(account_id)
+async def _run_checkin_job(account_id: int):
+    """Scheduler callback that runs one account check-in."""
+    async with async_session() as db:
+        result = await db.execute(select(Account).where(Account.id == account_id))
+        account = result.scalar_one_or_none()
 
-    # 先移除旧任务
+        if not account:
+            logger.warning("Scheduled job skipped: account_id=%s does not exist", account_id)
+            return
+
+        if not account.schedule_enabled:
+            logger.info("Scheduled job skipped: account=%s is disabled", account.account_name)
+            return
+
+        delay = random.randint(0, account.schedule_random_delay)
+        if delay > 0:
+            logger.info("Scheduled job delay: account=%s, delay=%ss", account.account_name, delay)
+            await asyncio.sleep(delay)
+
+        logger.info("Scheduled job started: account=%s", account.account_name)
+        try:
+            await checkin_service.run_checkin(db, account)
+        except Exception as exc:
+            logger.error("Scheduled job failed: account=%s, err=%s", account.account_name, exc)
+
+
+async def apply_account_schedule(account_id: int, account: Account = None):
+    """Apply one account schedule (create/replace/remove)."""
+    job_id = _make_job_id(account_id)
     existing = scheduler.get_job(job_id)
     if existing:
         scheduler.remove_job(job_id)
-        logger.info(f"移除旧定时任务: {job_id}")
+        logger.info("Removed old schedule job: %s", job_id)
 
     if account is None:
         async with async_session() as db:
@@ -65,40 +88,30 @@ async def apply_account_schedule(account_id: int, account: Account = None):
             account = result.scalar_one_or_none()
 
     if not account or not account.schedule_enabled:
-        logger.info(f"账号 {account_id} 未启用定时, 跳过")
+        logger.info("Account schedule disabled, skipped: account_id=%s", account_id)
         return
 
-    # 解析时间
-    try:
-        parts = account.schedule_time.split(":")
-        hour = int(parts[0])
-        minute = int(parts[1])
-    except Exception:
-        hour, minute = 8, 0
-
-    trigger = CronTrigger(hour=hour, minute=minute, timezone="Asia/Shanghai")
+    hour, minute = _parse_schedule_time(account.schedule_time)
+    trigger = CronTrigger(hour=hour, minute=minute, timezone=SCHEDULER_TZ)
     scheduler.add_job(
         _run_checkin_job,
         trigger=trigger,
         id=job_id,
         args=[account_id],
         replace_existing=True,
-        name=f"签到-{account.account_name}",
+        name=f"checkin-{account.account_name}",
     )
-    logger.info(f"已应用定时任务: {account.account_name} -> {hour:02d}:{minute:02d}")
+    logger.info("Applied schedule: account=%s, time=%02d:%02d", account.account_name, hour, minute)
 
 
-async def apply_all_schedules():
-    """重新应用所有定时任务"""
-    # 清除所有现有签到任务
+async def apply_all_schedules() -> int:
+    """Rebuild all enabled account schedules."""
     for job in scheduler.get_jobs():
         if job.id.startswith("checkin_"):
             scheduler.remove_job(job.id)
 
     async with async_session() as db:
-        result = await db.execute(
-            select(Account).where(Account.schedule_enabled == True)
-        )
+        result = await db.execute(select(Account).where(Account.schedule_enabled == True))
         accounts = result.scalars().all()
 
         count = 0
@@ -106,31 +119,76 @@ async def apply_all_schedules():
             await apply_account_schedule(account.id, account)
             count += 1
 
-    logger.info(f"已应用 {count} 个定时任务")
+    logger.info("Applied %s schedule jobs", count)
+    return count
+
+
+async def run_startup_catchup() -> int:
+    """Run one catch-up check-in on startup if today's schedule time is already missed."""
+    tz = ZoneInfo(SCHEDULER_TZ)
+    now_local = datetime.now(tz)
+    count = 0
+
+    async with async_session() as db:
+        result = await db.execute(select(Account).where(Account.schedule_enabled == True))
+        accounts = result.scalars().all()
+
+        for account in accounts:
+            hour, minute = _parse_schedule_time(account.schedule_time)
+            scheduled_today = now_local.replace(hour=hour, minute=minute, second=0, microsecond=0)
+
+            # Cron jobs do not backfill by default. If startup is after today's schedule,
+            # trigger one catch-up execution unless the account has already run today.
+            if now_local <= scheduled_today:
+                continue
+
+            last_checkin_local = _to_local(account.last_checkin_at, tz)
+            if last_checkin_local and last_checkin_local.date() == now_local.date():
+                continue
+
+            logger.info(
+                "Startup catch-up triggered: account=%s, schedule=%02d:%02d, now=%s",
+                account.account_name,
+                hour,
+                minute,
+                now_local.isoformat(timespec="seconds"),
+            )
+            try:
+                await checkin_service.run_checkin(db, account)
+                count += 1
+            except Exception as exc:
+                logger.error("Startup catch-up failed: account=%s, err=%s", account.account_name, exc)
+
+    if count:
+        logger.info("Startup catch-up finished: %s account(s) executed", count)
+    else:
+        logger.info("Startup catch-up finished: no account required catch-up")
     return count
 
 
 def get_scheduler_status() -> list[dict]:
-    """获取所有定时任务状态"""
+    """Return all scheduler jobs and next run time."""
     jobs = []
     for job in scheduler.get_jobs():
-        jobs.append({
-            "id": job.id,
-            "name": job.name,
-            "next_run_time": str(job.next_run_time) if job.next_run_time else None,
-        })
+        jobs.append(
+            {
+                "id": job.id,
+                "name": job.name,
+                "next_run_time": str(job.next_run_time) if job.next_run_time else None,
+            }
+        )
     return jobs
 
 
 def start_scheduler():
-    """启动调度器"""
+    """Start APScheduler once."""
     if not scheduler.running:
         scheduler.start()
-        logger.info("调度器已启动")
+        logger.info("Scheduler started")
 
 
 def shutdown_scheduler():
-    """关闭调度器"""
+    """Shutdown APScheduler."""
     if scheduler.running:
         scheduler.shutdown(wait=False)
-        logger.info("调度器已关闭")
+        logger.info("Scheduler stopped")
